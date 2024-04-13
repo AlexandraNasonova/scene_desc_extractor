@@ -53,8 +53,34 @@ class Text:
 #             '\t'.join([s for s in self.sentences]
 
 
+class LabelLine:
+    def __init__(self, sentence_id, word: Word, max_level):
+        self.sentence_id = sentence_id
+        self.word_id = word.word_id
+        self.word = word.word
+        self.lemma_init = word.lemma_init
+        self.pos_tag = word.pos_tag
+        self.dep_type = word.dep_type
+        self.dep_parent_id = word.dep_parent_id
+        self.max_level = max_level
+        self.entities = [(-1, '')]*max_level
 
+    def __str__(self):
+        entities_str = ''
+        # append entities from level 0 to max_level
+        # and fill with O BILOU tag if label is missing
+        for i in range(self.max_level + 1):
+            if len(self.entities) > i:
+                entities_str += f'\t{self.entities[i][0]}\t{self.entities[i][1]}'
+            else:
+                entities_str += '\t-100\tO'
+            print(entities_str)
 
+        # consider entities with level > max_level as max_level
+        # so this enities can be ignored
+        return (f'{self.sentence_id}\t{self.word_id}\t{self.word}\t'
+                f'{self.lemma_init}\t{self.pos_tag}\t{self.dep_type}\t'
+                f'{self.dep_parent_id}{entities_str}')
 
 
 # class Entity:

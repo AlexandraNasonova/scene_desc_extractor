@@ -15,9 +15,9 @@ class Entity:
 
 
 class Word:
-    def __init__(self, word_id: int, word: str, lemma_init: str,
-                 pos_tag: str, dep_type: str, dep_parent_id: int,
-                 entities: list[Entity]):
+    def __init__(self, word_id: int, word: str, lemma_init: str = '',
+                 pos_tag: str = '', dep_type: str = '', dep_parent_id: int = -1,
+                 entities: list[Entity] = None):
         self.word_id = word_id
         self.word = word
         self.lemma_init = lemma_init
@@ -29,8 +29,9 @@ class Word:
     def __str__(self):
         return (f'word_id : {self.word_id}, word: {self.word}, '
                 f'lemma_init: {self.lemma_init}, pos_tag: {self.pos_tag}, '
-                f'dep_type: {self.dep_type}, dep_parent_id: {self.dep_parent_id}, '
-                f'\nentities: {[{" | ".join("(" + str(e) + ")" for e in self.entities)}]})')
+                f'dep_type: {self.dep_type}, dep_parent_id: {self.dep_parent_id},\n'
+                f'entities: '
+                f'[{"" if self.entities is None else " | ".join("(" + str(e) + ")" for e in self.entities)}]')
 
 
 class Sentence:
@@ -42,7 +43,7 @@ class Sentence:
 
 class Text:
 
-    def __init__(self, text_full: str, sentences: list[Sentence], coref_entities: list[str]):
+    def __init__(self, text_full: str, sentences: list[Sentence], coref_entities: dict[int, str]):
         self.text_full = text_full
         self.sentences = sentences
         self.coref_entities = coref_entities
@@ -63,7 +64,7 @@ class LabelLine:
         self.dep_type = word.dep_type
         self.dep_parent_id = word.dep_parent_id
         self.max_level = max_level
-        self.entities = [(-1, '')]*max_level
+        self.entities = []
 
     def __str__(self):
         entities_str = ''
@@ -74,10 +75,9 @@ class LabelLine:
                 entities_str += f'\t{self.entities[i][0]}\t{self.entities[i][1]}'
             else:
                 entities_str += '\t-100\tO'
-            print(entities_str)
 
         # consider entities with level > max_level as max_level
-        # so this enities can be ignored
+        # so this entities can be ignored
         return (f'{self.sentence_id}\t{self.word_id}\t{self.word}\t'
                 f'{self.lemma_init}\t{self.pos_tag}\t{self.dep_type}\t'
                 f'{self.dep_parent_id}{entities_str}')

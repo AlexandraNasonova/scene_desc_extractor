@@ -22,6 +22,13 @@ class ConlluFilesConverter:
         self.outside_entity_tag = outside_entity_tag
         self.unique_entity_tag = unique_entity_tag
 
+    def __get_default_entity(self):
+        return (-100, self.outside_entity_tag)
+
+    def __get_default_entities_for_max_level(self):
+        default_entity = self.__get_default_entity()
+        return [default_entity] * (self.max_level + 1)
+
     def __extract_entity_info(self, text: str) -> (str, list[(str, str)]):
         entity_start_mark_index = text.find(self.ENTITY_START_MARKER)
         if entity_start_mark_index == -1:
@@ -50,7 +57,7 @@ class ConlluFilesConverter:
     def __parse_entity_matches(self, word_id: int, entity_matches: list[(str, str)],
                                coref_entities: dict[int, str],
                                open_entities: list[sd.Entity]) -> list[sd.Entity]:
-        result_entities = [None]*(self.max_level + 1)
+        result_entities = [None] * (self.max_level + 1)
         # if no openings or closings or already opened entities return tag O (Outside)
         if len(entity_matches) == 0 and len(open_entities) == 0:
             result_entities[0] = sd.Entity(word_id=word_id, coref_id=0, bilou_tag=self.outside_entity_tag, level=0)
@@ -107,6 +114,35 @@ class ConlluFilesConverter:
                                               result_entities=result_entities)
         return result_entities
 
+    def __get_sentence_text(self, line):
+        sentence_text = line[self.TEXT_MARKER_LEN:-1]
+        last_symbol = sentence_text[-1]
+        dots_replaced, dot_added = False, False
+        if last_symbol == ":":
+            sentence_text = sentence_text[:-1] + '.'
+            dots_replaced = True
+        elif last_symbol != ".":
+            sentence_text = sentence_text + '.'
+            dot_added = True
+        return sentence_text, dots_replaced, dot_added
+
+    def __append_sentence(self, sentence, text, dots_replaced, dot_added):
+        if sentence is not None:
+            if dots_replaced:
+                sentence.words[-1].word = '.'
+                sentence.words[-1].lemma_init = '.'
+            elif dot_added:
+                next_word_id = sentence.words[-1].word_id + 1
+                entities = [None] * (self.max_level + 1)
+                entities[0] = sd.Entity(word_id=next_word_id, coref_id=0,
+                                        bilou_tag=self.outside_entity_tag, level=0)
+                word = sd.Word(word_id=next_word_id, word='.', lemma_init='.',
+                               pos_tag='PUNCT', dep_type='punct', dep_parent_id=1,
+                               entities=entities)
+                sentence.words.append(word)
+
+            text.sentences.append(sentence)
+
     def __parse_conllu_file(self, file_path):
         with open(file_path, 'r', encoding='utf-8') as file:
             lines = file.readlines()
@@ -115,17 +151,17 @@ class ConlluFilesConverter:
             open_entities = []
             sentence_text = ''
             sentence = None
+            dots_replaced, dot_added = False, False
             # Iterate through each line in the file
             for line in lines:
                 # collect text
                 if line.startswith(self.TEXT_MARKER):
-                    sentence_text = line[self.TEXT_MARKER_LEN:-1]
+                    sentence_text, dots_replaced, dot_added = self.__get_sentence_text(line)
                     text.text_full += sentence_text + " "
 
                 # init new sentence
                 if line.startswith(self.SENTENCE_ID_MARKER):
-                    if sentence is not None:
-                        text.sentences.append(sentence)
+                    self.__append_sentence(sentence, text, dots_replaced, dot_added)
                     sentence_id = int(line[(line.rfind('-') + 1):])
                     sentence = sd.Sentence(sentence_id=sentence_id, sentence_text=sentence_text,
                                            words=[])
@@ -133,7 +169,10 @@ class ConlluFilesConverter:
                 # collect line info for words and punctuation
                 if line[0].isdigit():
                     parts = line.split("\t")
-                    word_id = parts[0]
+                    if not parts[0].isdigit():
+                        continue
+                    word_id = int(parts[0])
+
                     entity_tag, entity_matches = self.__extract_entity_info(text=parts[9])
                     # get BILOU entities for each words
                     entities = self.__parse_entity_matches(word_id=word_id,
@@ -160,7 +199,7 @@ class ConlluFilesConverter:
 
     def __parsed_text_to_labels_str(self, text: sd.Text):
         lines = []
-        default_entity = (-100, self.outside_entity_tag)
+
         for sentence in text.sentences:
             sentence_id = sentence.sentence_id
 
@@ -170,7 +209,7 @@ class ConlluFilesConverter:
                                     word=sd.Word(word_id=0, word=self.cls_tag, lemma_init=self.cls_tag,
                                                  pos_tag='_', dep_type='_', dep_parent_id=-1, entities=None),
                                     max_level=self.max_level)
-                line.entities.extend([default_entity]*(self.max_level + 1))
+                line.entities.extend(self.__get_default_entities_for_max_level())
                 lines.append(str(line))
 
             # append words lines
@@ -178,7 +217,7 @@ class ConlluFilesConverter:
                 line = sd.LabelLine(sentence_id=sentence_id, word=word, max_level=self.max_level)
                 for entity in word.entities:
                     if entity is None or entity.bilou_tag == self.outside_entity_tag:
-                        line.entities.append(default_entity)
+                        line.entities.append(self.__get_default_entity())
                     else:
                         bilou_tag = entity.bilou_tag + '-' + text.coref_entities[entity.coref_id]
                         line.entities.append((entity.coref_id, bilou_tag))
@@ -191,7 +230,7 @@ class ConlluFilesConverter:
                                                  word=self.sep_tag, lemma_init=self.sep_tag, pos_tag='_',
                                                  dep_type='_', dep_parent_id=-1, entities=None),
                                     max_level=self.max_level)
-                line.entities.extend([default_entity] * (self.max_level + 1))
+                line.entities.extend(self.__get_default_entities_for_max_level())
                 lines.append(str(line))
 
         return '\n'.join(lines)

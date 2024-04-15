@@ -4,6 +4,9 @@
 datasets/*
 !datasets/
 
+research/data/*
+research/data_exp/*
+research/sample/*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

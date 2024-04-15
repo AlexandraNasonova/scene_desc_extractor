@@ -71,10 +71,11 @@ class LabelLine:
         # append entities from level 0 to max_level
         # and fill with O BILOU tag if label is missing
         for i in range(self.max_level + 1):
-            if len(self.entities) > i:
-                entities_str += f'\t{self.entities[i][0]}\t{self.entities[i][1]}'
-            else:
-                entities_str += '\t-100\tO'
+            entities_str += f'\t{self.entities[i][0]}\t{self.entities[i][1]}'
+            # if len(self.entities) > i:
+            #     entities_str += f'\t{self.entities[i][0]}\t{self.entities[i][1]}'
+            # else:
+            #     entities_str += '\t-100\tO'
 
         # consider entities with level > max_level as max_level
         # so this entities can be ignored

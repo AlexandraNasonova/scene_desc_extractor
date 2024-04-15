@@ -37,22 +37,26 @@ class ConlluFilesConverter:
         return entity_tag, entity_matches
 
     def __append_open_entities_as_inside(self, word_id: int, open_entities: list[sd.Entity],
-                                         result_entities=list[sd.Entity]) -> None:
+                                         result_entities: list[sd.Entity]) -> None:
         for entity in open_entities:
             if entity.word_id == word_id:
                 continue
+            level = entity.level
+            coref_id = entity.coref_id
             entity = sd.Entity(word_id=word_id, coref_id=entity.coref_id,
                                bilou_tag=self.inside_entity_tag, level=entity.level)
-            result_entities.insert(entity.level, entity)
+            result_entities[entity.level] = entity
 
     def __parse_entity_matches(self, word_id: int, entity_matches: list[(str, str)],
                                coref_entities: dict[int, str],
                                open_entities: list[sd.Entity]) -> list[sd.Entity]:
-        result_entities = []
+        result_entities = [None]*(self.max_level + 1)
         # if no openings or closings or already opened entities return tag O (Outside)
         if len(entity_matches) == 0 and len(open_entities) == 0:
-            return [sd.Entity(word_id=word_id, coref_id=0, bilou_tag=self.outside_entity_tag, level=0)]
+            result_entities[0] = sd.Entity(word_id=word_id, coref_id=0, bilou_tag=self.outside_entity_tag, level=0)
+            return result_entities
 
+        level = 0
         # if there are some openings or closings for entities
         for match in entity_matches:
             entity_start, entity_end = match[0], match[1]
@@ -71,15 +75,17 @@ class ConlluFilesConverter:
                     # create a new entity with B - Begin BILOU tag as default
                     entity = sd.Entity(word_id=word_id, coref_id=coref_id, bilou_tag=self.begin_entity_tag, level=level)
                     open_entities.append(entity)
-                    result_entities.append(entity)
+                    result_entities[level] = entity
+                else:
+                    level = self.max_level
 
             # for a closing
             elif len(open_entities) > 0:
                 spl = entity_end[:-1]
                 # if not links to coref_if then the last opening should be tagged U (Unique) if its level is not ignored
                 if spl == '':
-                    if len(result_entities) > 0:
-                        result_entities[-1].bilou_tag = self.unique_entity_tag
+                    if result_entities[level] is not None:
+                        result_entities[level].bilou_tag = self.unique_entity_tag
                         open_entities.pop()
 
                 # if there is the link to coref_if, then tag L (Last) should be used
@@ -93,7 +99,7 @@ class ConlluFilesConverter:
                     if open_entity_index >= 0:
                         entity = sd.Entity(word_id=word_id, coref_id=coref_id, bilou_tag=self.last_entity_tag,
                                            level=open_entities[open_entity_index].level)
-                        result_entities.insert(open_entities[open_entity_index].level, entity)
+                        result_entities[open_entities[open_entity_index].level] = entity
                         open_entities.pop(open_entity_index)
 
         # update already opened entities with nested info
@@ -154,7 +160,7 @@ class ConlluFilesConverter:
 
     def __parsed_text_to_labels_str(self, text: sd.Text):
         lines = []
-
+        default_entity = (-100, self.outside_entity_tag)
         for sentence in text.sentences:
             sentence_id = sentence.sentence_id
 
@@ -164,14 +170,15 @@ class ConlluFilesConverter:
                                     word=sd.Word(word_id=0, word=self.cls_tag, lemma_init=self.cls_tag,
                                                  pos_tag='_', dep_type='_', dep_parent_id=-1, entities=None),
                                     max_level=self.max_level)
+                line.entities.extend([default_entity]*(self.max_level + 1))
                 lines.append(str(line))
 
             # append words lines
             for word in sentence.words:
                 line = sd.LabelLine(sentence_id=sentence_id, word=word, max_level=self.max_level)
                 for entity in word.entities:
-                    if entity.bilou_tag == self.outside_entity_tag:
-                        line.entities.append((-1, self.outside_entity_tag))
+                    if entity is None or entity.bilou_tag == self.outside_entity_tag:
+                        line.entities.append(default_entity)
                     else:
                         bilou_tag = entity.bilou_tag + '-' + text.coref_entities[entity.coref_id]
                         line.entities.append((entity.coref_id, bilou_tag))
@@ -184,6 +191,7 @@ class ConlluFilesConverter:
                                                  word=self.sep_tag, lemma_init=self.sep_tag, pos_tag='_',
                                                  dep_type='_', dep_parent_id=-1, entities=None),
                                     max_level=self.max_level)
+                line.entities.extend([default_entity] * (self.max_level + 1))
                 lines.append(str(line))
 
         return '\n'.join(lines)
@@ -192,12 +200,31 @@ class ConlluFilesConverter:
     def __coref_dict_to_str(text: sd.Text):
         return '\n'.join([f'{key}\t{val}' for key, val in text.coref_entities.items()])
 
-    def convert_and_save_folder(self, source_folder: str, target_folder: str) -> None:
+    @staticmethod
+    def __convert_and_save_source_file_mapping(source_file_paths: list[str],
+                                               files_mapping_file_path: str) -> None:
+        mapping_str = '\n'.join([f'{i}\t{source_path}' for i, source_path in enumerate(source_file_paths)])
+        with open(files_mapping_file_path, 'w') as file:
+            file.write(mapping_str)
+
+    def convert_and_save_folder(self, source_folder: str,
+                                target_text_folder: str,
+                                coref_dict_folder: str,
+                                target_labels_folder: str,
+                                files_mapping_file_path: str = None
+                                ) -> None:
         source_file_names = os.listdir(source_folder)
         source_file_paths = [os.path.join(source_folder, file_name) for file_name in source_file_names]
         for i, source_file_path in enumerate(source_file_paths):
-            target_file_path = os.path.join(target_folder, f'{str(i)}.txt')
-            self.convert_and_save_file(source_file_path, target_file_path)
+            target_file_name = f'{str(i)}.txt'
+            target_text_file_path = os.path.join(target_text_folder, target_file_name)
+            coref_dict_file_path = os.path.join(coref_dict_folder, target_file_name)
+            target_labels_file_path = os.path.join(target_labels_folder, target_file_name)
+            self.convert_and_save_file(source_file_path, target_text_file_path,
+                                       coref_dict_file_path, target_labels_file_path)
+
+        if files_mapping_file_path is not None:
+            self.__convert_and_save_source_file_mapping(source_file_paths, files_mapping_file_path)
 
     def convert_and_save_file(self, source_file_path: str,
                               target_text_file_path: str,

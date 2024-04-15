@@ -6,7 +6,7 @@ datasets/*
 
 research/data/*
 research/data_exp/*
-research/sample/*
+research/udapy_research/sample/*
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
